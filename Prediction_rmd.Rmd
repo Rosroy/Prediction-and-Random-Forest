@@ -1,5 +1,5 @@
 ---
-title: "Prediction an Random Forest"
+title: "Prediction and Random Forest"
 author: "Roshni Roy"
 
 
