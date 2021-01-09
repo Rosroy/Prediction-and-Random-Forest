@@ -1,6 +1,6 @@
 ---
 title: "Prediction an Random Forest"
-author: "Purba Roy"
+author: "Roshni Roy"
 
 
 ```{r Setup, message=FALSE}
