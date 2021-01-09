@@ -1,0 +1,426 @@
+---
+title: "Prediction an Random Forest"
+author: "Purba Roy"
+
+
+```{r Setup, message=FALSE}
+# Load standard libraries
+library(tidyverse)
+library(dplyr)
+library(gridExtra)
+library(MASS)
+#install.packages('pROC')
+library(pROC)
+#install.packages('arm')
+library(arm)
+#install.packages('randomForest')
+#install.packages('Metrics')
+library(randomForest)
+library(Metrics)
+```
+
+\noindent \textbf{Data:} In this problem set we will use the \texttt{flights} and \texttt{titanic} datasets. The flights dataset (via the the \textit{nycflights13} library) contains information on flight delays and weather. Titanic text file contains data about the survival of passengers aboard the Titanic. 
+
+
+we will evaluate the performance of several statistical learning methods.  We will fit our learning models using a set of \emph{training} observations and measure its performance on a set of \emph{test} observations.
+\vspace{1cm}
+
+
+
+
+**We use 2 datasets- Training and Test when evaluating statistical models. We use training data to fit the model, where the model observes and learns from the training dataset.**
+**We use the test dataset for an unbiased evaluation of the training dataset.**
+
+#### Predictions with a continuous output variable
+
+###### \textbf Joining the flights data to the weather data based on the departure location, date, and hour of the flight. Excluding data entries which cannot be joined to weather data. 
+
+**We used left join so that data entries that coudln't be joined with the weather data get excluded.**
+```{r Load flghts}
+# Load data
+library(nycflights13)
+head(flights)
+
+ flights<- flights
+ 
+#load weather data
+ data('weather')
+
+head(weather)
+
+#Joining by = "year", "month", "day", "origin" (departure location), "hour", "time_hour")
+#used left join so that data entries that coudlnt be joined with the weather data get excluded.
+merged_data <- left_join(flights,weather) 
+
+head(merged_data)
+# sum(is.na(merged_data))
+```
+
+
+###### \textbf From the joined data, keeping only the following columns as we build our first model: departure delay, origin, departure time, temperature, wind speed, precipitation, and visibility. 
+
+```{r}
+
+#keepong only selected columns
+merged_data_S <- merged_data[c("dep_delay", "origin", "temp", "dep_time", "wind_speed", "precip", "visib")]
+
+#omitting observations with NA values
+merged_data_SC <- na.omit(merged_data_S) 
+
+head(merged_data_SC,9)
+
+```
+
+###### \textbf Spliting my data into a \emph{training} and \emph{test} set based on an 80-20 split.
+
+```{r}
+#setting random seed
+set.seed(123)
+
+# checking the datatypes of the variables 
+sapply(merged_data_SC,class)
+class(merged_data_SC$origin)
+ # as "origin" has just 3 values, we make it categorical.
+merged_data_SC$origin <- as.factor(merged_data_SC$origin)
+
+class(merged_data_SC$origin)
+
+#sampling 80% of the data in training set and the other 20% in test set.
+
+
+sample <- sample.int(n = nrow(merged_data_SC), size = floor(.80*nrow(merged_data_SC)))
+train <- merged_data_SC[sample, ]
+test  <- merged_data_SC[-sample, ]  #putting the remaining 20% in the test dataset.
+
+```
+
+###### \textbf Building a linear regression model to predict departure delay using the subset of variables.
+
+
+**The RMSE(Root Mean Square Error) on the training set is 38.40969**
+**The RMSE(Root Mean Square Error) on the test set is 38.3584**
+**The RMSE for the training set is a bit higher**
+**The RMSE for the test dataset is a bit lower than the training dataset, which means that the test model has learnt from the training model and is performing a bit better than the training dataset.**
+```{r}
+
+#Training dataset:
+
+#building a linear regression model with all variables from the subset.
+
+linearModTrain <- lm(dep_delay ~ ., data=train) 
+
+predictionsTrain <- predict(linearModTrain, train)
+#calculating the RMSE using the function from the Metrics library
+rmse(train$dep_delay, predictionsTrain)
+
+#Test dataset:
+linearModTest <- lm(dep_delay ~ ., data=test) 
+
+predictionsTest <- predict(linearModTest, test)
+
+#calculating the RMSE 
+rmse(test$dep_delay, predictionsTest)
+
+```
+
+###### \textbf Now, improving upon these prediction results by including additional variables in your model. 
+
+
+**The training RMSE is now 36.10052 and the test RMSE is 35.24445**
+**We notice that on adding extra variables such as carrier, destination, flight, distance and pressure, we see that the RMSE drops down for both training and test dataset. **
+**SO , we infer that as we approach multivariate regression by adding more variables, the error reduces.**
+
+
+```{r}
+
+set.seed(123)
+#adding additional variables in a dataset from our merged dataset.
+merged_data_additional <- merged_data[c("dep_delay", "origin", "temp", "dep_time", "wind_speed", "precip", "visib", "carrier", "dest","flight","distance","pressure")]
+
+
+# creating a train and test dataset for this dataset
+sample_additional <- sample.int(n = nrow(merged_data_additional), size = floor(.80*nrow(merged_data_additional)))
+train_additional <- merged_data_additional[sample_additional, ]
+test_additional  <- merged_data_additional[-sample_additional, ]
+
+
+#as origin and destination are categorical values, converting them to factors
+train_additional$origin <- as.factor(train_additional$origin)
+train_additional$dest <- as.factor((train_additional$dest))
+
+test_additional$origin <- as.factor(test_additional$origin)
+test_additional$dest <- as.factor((test_additional$dest))
+
+#for train data
+#applying linear regression model
+linearModTrain_additional <- lm(dep_delay ~ ., data=train_additional) 
+
+#calculated RMSE of the residuals.
+sqrt(mean(linearModTrain_additional$residuals^2))
+
+
+#for Train data
+linearModTest_additional <- lm(dep_delay ~ ., data=test_additional)
+#calculating the RMSE
+sqrt(mean(linearModTest_additional$residuals^2))
+
+```
+
+#### Predictions with a categorical output (classification)
+
+###### \textbf Loading the titanic data. Spliting my data into a \emph{training} and \emph{test} set based on an 80-20 split. In other words, 80\% of the observations will be in the training set and 20\% will be in the test set. 
+
+
+```{r}
+titanic_data <- read.csv('titanic.csv')
+head(titanic_data)
+
+#setting the random seed
+set.seed(101)
+
+#sampling 80% of the data in training set and the other 20% in test set.
+
+sample_titanic <- sample(1:nrow(titanic_data), size=0.80*nrow(titanic_data))
+trainTitanic <- titanic_data[sample_titanic, ]
+testTitanic  <- titanic_data[-sample_titanic, ]
+```
+
+our goal is to predict the survival of passengers. First, let's train a logistic regression model for survival that controls for the socioeconomic status of the passenger.
+
+###### \textbf Fitting the model described above (i.e. one that only takes into account socioeconomic status) using the \texttt{glm} function in R. 
+
+
+**We used passenger class as a socioeconomic factor here.**
+
+```{r}
+LogisticMod <- glm(survived ~ pclass,data=trainTitanic, family = binomial) 
+
+```
+
+
+**the p value is < 2e-16 which is way less than 0.05 and this means that its is statistically significant .**
+**It tells us that for each increase in class number (ie. from 1 to 3), the log odds of survival are decreasing by 0.7663174, in other words, the chances of survival are getting decreased**
+**It can be hence inferred that for a 1st class passenger the survival rate is much higher than that of a 3rd class passenger.**
+```{r}
+
+#calculating the RMSE using the function from the Metrics library
+summary(LogisticMod)
+
+# getting the pclass of the logistic model.
+LogisticMod$coefficients[2]
+```
+
+
+Next, let's consider the performance of this model. 
+
+###### \textbf  Predicting the survival of passengers for each observation in your test set using the model fit .
+
+
+```{r}
+# predicting the survival using predict function
+yhat <- predict(LogisticMod, testTitanic, type="response")
+
+
+```
+
+###### \textbf Using a threshold of 0.5 to classify predictions. 
+
+**there are 21 false positives **
+**By false positive, we mean that the model predicted that a passenger will survive, when infact the person does not survive.**
+**For 21 cases, the model predicted that the person will survive, but actually the person died.**
+
+```{r}
+threshold <- 0.5
+
+
+tapply(yhat,testTitanic$pclass, mean)
+table(testTitanic$survived, yhat > threshold)
+
+# to cross check my number of false positives
+
+#applied a for loop fitting my condition for false positive, which counts the cases where
+#the number of passengers have not survived and the value in the prediction model is greater that 0.5
+ falsePositiveNumber=0
+for (i in 1:length(yhat)){
+  if(yhat[i] >= threshold & testTitanic$survived[i]==0 )
+    falsePositiveNumber <- falsePositiveNumber+1
+}
+falsePositiveNumber
+
+```
+
+
+###### \textbf  Using the \texttt{roc} function, plotting the ROC curve for this model. 
+
+
+**The ROC curve compares the rank of prediction and answer.**
+**The distance between the curve and the line is not much. We know that as the distance between these two increase, the model is more accurate in distinguishing between positives and negative. **
+**Ideally, the curve should be more inclined towards the top left corner, for a better accuracy of any model.**
+
+```{r}
+#ROCRperf = performance(yhatTest, "tpr", "fpr")
+
+ROCRperf = roc(testTitanic$survived , yhat, plot= TRUE)
+ROCRperf
+
+```
+
+###### \textbf Suppose we use the data to construct a new predictor variable based on a passenger's listed title (i.e. Mr., Mrs., Miss., Master). 
+
+
+
+
+**By adding the new variables, Ms, Mrs, Miss, and Master, we see that it includes data for married men, women, and unmarried men and women, possibly children and families.**
+**This might be an interesting variable to predict passenger survival as we can take into account a lot of more situations, such as if teh number of deaths of Mr is more than Mrs and Miss, we MAY infer that more women survived than men possibly due to different evacuation techniques. Also, if the number of deaths are lower for master, we can infer that less number of children died, and we can look at various other factors.**
+
+```{r}
+# Making a feature that includes more titles
+getTitles <- function(name) {
+  for (title in c("Master", "Miss", "Mrs.", "Mr.")) {
+    if (grepl(title, name)) {
+      return(title)
+    }
+  }
+  return("Nothing")
+}
+
+# adding a separate column for passenger titles.
+
+for (i in 1:nrow(titanic_data)){
+  titanic_data$pass_title[i] <- getTitles(titanic_data$name[i])
+}
+
+
+```
+
+###### \textbf Fitting a second logistic regression model including this new feature. 
+
+
+**The AIC value has decreased from 1287.3 to 995.43, which means that the model is a a better fit.**
+**Also, we notice that the p value of Mr and Passengers without a title, are less than 0.05 which means that they are statistically significant.**
+
+```{r}
+
+#dividing the data into train and test again as we have added the new variable
+sample <- sample(1:nrow(titanic_data), size = 0.80*nrow(titanic_data))
+trainTitanic_new <- titanic_data[sample, ]
+testTitanic_new  <- titanic_data[-sample, ]
+
+LogisticMod_New <- glm(survived ~ pclass + pass_title,data=trainTitanic_new, family = binomial) 
+summary(LogisticMod_New)
+```
+
+
+###### \textbf Commenting on the overall fit of this model. 
+
+
+**We see the below observations:**
+**false positives: 92**
+**False negative: 549**
+**true Positive: 159**
+**True negative: 247**
+**We calculate the sensitivity and specificity, and evertytime we decrease teh threshold, specificity increases and sensitivity decreases.**
+**Here, we are trying to calculate and predict the survival rate, and in such models, higher specificity means that the model is a good fit, or better accuracy.**
+**Specificity as per theory is true negative.With a decrease in threshold , the specificity increases which means that false positives decreases and sensitivity decreases.So the accuracy of the model will increase. **
+
+```{r}
+threshold <- 0.5
+yhat_PassTitle <- predict(LogisticMod, trainTitanic_new, type="response")
+
+tapply(yhat_PassTitle,trainTitanic_new$pclass, mean)
+table(trainTitanic_new$survived, yhat_PassTitle > threshold)
+
+threshold <- 0.3
+tapply(yhat_PassTitle,trainTitanic_new$pclass, mean)
+table(trainTitanic_new$survived, yhat_PassTitle > threshold)
+
+
+spec<-414/(227+414)
+sens<-259/(259+147)
+
+
+```
+
+
+
+###### \textbf  Predicting the survival of passengers for each observation in your test data using the new model. 
+
+```{r}
+# prediction model
+yhat2 <- predict(LogisticMod_New, testTitanic_new, type="response")
+
+ROCRperf_2 = roc(testTitanic_new$survived , yhat2, plot= TRUE)
+ROCRperf_2
+```
+#### Random forests
+
+Another very popular classifier used in data science is called a \emph{random  forest}\footnote{\url{https://www.stat.berkeley.edu/\~breiman/RandomForests/cc_home.htm}}.
+
+###### \textbf{17.} Using the \texttt{randomForest} function to fit a random forest model with passenger class and title as predictors. Making predictions for the test set using the random forest model. 
+
+
+
+```{r}
+
+
+#converting it into numeric datatypes
+trainTitanic_new$survived <- as.integer(trainTitanic_new$survived)
+trainTitanic_new$pclass <- as.integer(trainTitanic_new$pclass)
+trainTitanic_new$pass_title <- as.integer(trainTitanic_new$pass_title)
+
+testTitanic_new$survived <- as.integer(testTitanic_new$survived)
+testTitanic_new$pclass <- as.integer(testTitanic_new$pclass)
+testTitanic_new$pass_title <- as.integer(testTitanic_new$pass_title)
+
+# applying random forest model
+RFModel <- randomForest(survived~pclass+pass_title, data = trainTitanic_new, na.action=na.omit)
+
+
+# predicting the model
+yhat3 <- predict(RFModel, testTitanic_new, type="response")
+
+yhat3<-as.numeric(yhat3)
+ROCRperf_3 = roc(testTitanic_new$survived , yhat3, plot= TRUE)
+```
+
+###### \textbf Developing my random forest model (i.e. add/remove variables at your discretion), attempting to improve the model performance.  Making predictions for the test set using your new random forest model. 
+
+
+**We have added more variables, such as fare, age and sex.**
+```{r}
+class(testTitanic_new$survived)
+
+RFModel_improved <- randomForest(survived~pclass+pass_title+fare+age+sex, data = trainTitanic_new, na.action=na.omit)
+#RFModel_improved
+
+yhat4 <- predict(RFModel_improved, testTitanic_new, type="response")
+#yhat4
+
+yhat4<- as.numeric(yhat4)
+ROCRperf_4 = roc(testTitanic_new$survived , yhat4, plot= TRUE)
+ROCRperf_4
+```
+
+
+###### \textbf  Comparing the accuracy of each of the models from this problem set using ROC curves. Commenting on which statistical learning method works best for predicting survival of the Titanic passengers. 
+
+
+**We have plotted the graphs together for a better understanding. Here are some points:**
+**As we see here, the best ROC curve is the one with the maximum distance between the line and the curve, and we see here, that it is shown by the blue dotted line here, whcih corresponds to the ROC curve for random forest.**
+**hence, we say that random forest works best for predicting survival of the titanic passengers**
+```{r}
+
+plot(ROCRperf, col = "black", lty = 1, main = "ROC") 
+plot(ROCRperf_2, col = "red", lty = 2, add = TRUE)
+plot(ROCRperf_3, col = 368, lty = 6, add = TRUE)
+plot(ROCRperf_4, col = "Blue", lty = 3, add = TRUE) #randomForest
+
+legend(1,  c("yhat","yhat2","yhat3","Random Forest"), cex=0.5, 
+   col=c("black","red",368,"Blue"), lty=c(1,2,6,3));
+
+
+```
+
+
+References: https://stackoverflow.com/questions/17200114/how-to-split-data-into-training-testing-sets-using-sample-function
+https://towardsdatascience.com/train-validation-and-test-sets-72cb40cba9e7
